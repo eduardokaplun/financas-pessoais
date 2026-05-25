@@ -3,7 +3,6 @@ import './globals.css'
 export const metadata = {
   title: 'Minhas Finanças',
   description: 'Controle financeiro pessoal',
-  manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Finanças' },
 }
 
