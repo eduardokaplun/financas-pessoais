@@ -23,11 +23,11 @@ const DEFAULT_CATS = [
 ]
 const CAT_COLORS = {'Alimentação':'#16a06a','Moradia':'#2f6fed','Transporte':'#d97706','Saúde':'#e03e3e','Educação':'#7c3aed','Lazer':'#db2777','Vestuário':'#d97706','Serviços':'#059669','Pets':'#0891b2','Presentes':'#be185d','Outros':'#6b7280','Salário':'#16a06a','Freelance':'#2f6fed','Investimentos':'#7c3aed','Outros (entrada)':'#6b7280'}
 
-function fmt(v) { return 'R$ ' + Number(v).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}) }
+function fmt(v) { return 'R$ ' + Number(v||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}) }
 function fmtShort(v) { if(v>=1000) return 'R$'+(v/1000).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'k'; return fmt(v) }
 function fmtDate(s) { if(!s) return ''; const [y,m,d]=s.split('-'); return `${d}/${m}` }
-function catColor(name, cats) { if(CAT_COLORS[name]) return CAT_COLORS[name]; const colors=['#16a06a','#2f6fed','#d97706','#7c3aed','#db2777','#0891b2','#be185d','#059669','#e03e3e']; let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))%colors.length; return colors[Math.abs(h)] }
-function catEmoji(name, cats) { const c=cats.find(c=>c.nome===name); return c?c.emoji:'📌' }
+function catColor(name) { if(CAT_COLORS[name]) return CAT_COLORS[name]; const colors=['#16a06a','#2f6fed','#d97706','#7c3aed','#db2777','#0891b2','#be185d','#059669','#e03e3e']; let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))%colors.length; return colors[Math.abs(h)] }
+function catEmoji(name, cats) { const c=(cats||[]).find(c=>c.nome===name); return c?c.emoji:'📌' }
 
 export default function Dashboard({ user, onLogout }) {
   const supabase = createClient()
@@ -40,8 +40,7 @@ export default function Dashboard({ user, onLogout }) {
   const [curY, setCurY] = useState(now.getFullYear())
   const [curM, setCurM] = useState(now.getMonth())
   const [filter, setFilter] = useState('todos')
-  // modal
-  const [modal, setModal] = useState(null) // null | 'lancamento' | 'fixo' | 'cat'
+  const [modal, setModal] = useState(null)
   const [tipo, setTipo] = useState('despesa')
   const [desc, setDesc] = useState('')
   const [valor, setValor] = useState('')
@@ -50,17 +49,15 @@ export default function Dashboard({ user, onLogout }) {
   const [parcOn, setParcOn] = useState(false)
   const [parcN, setParcN] = useState('')
   const [saving, setSaving] = useState(false)
-  // fixo form
   const [fDesc, setFDesc] = useState('')
   const [fValor, setFValor] = useState('')
   const [fCat, setFCat] = useState('')
   const [fTipo, setFTipo] = useState('despesa')
   const [fDia, setFDia] = useState('1')
-  // cat form
   const [newCatNome, setNewCatNome] = useState('')
   const [newCatEmoji, setNewCatEmoji] = useState('⭐')
   const [newCatTipo, setNewCatTipo] = useState('despesa')
-  const [toast, setToastMsg] = useState('')
+  const [toastMsg, setToastMsg] = useState('')
   const [toastVisible, setToastVisible] = useState(false)
 
   function showToast(msg) {
@@ -68,17 +65,16 @@ export default function Dashboard({ user, onLogout }) {
     setTimeout(() => setToastVisible(false), 2500)
   }
 
-  // LOAD DATA
   const load = useCallback(async () => {
+    if (!user || !user.id) return
     setLoading(true)
     const [l, c, f] = await Promise.all([
-      supabase.from('lancamentos').select('*').order('data', {ascending:false}),
-      supabase.from('categorias').select('*').order('criado_em'),
-      supabase.from('fixos').select('*').order('criado_em'),
+      supabase.from('lancamentos').select('*').eq('user_id', user.id).order('data', {ascending:false}),
+      supabase.from('categorias').select('*').eq('user_id', user.id).order('criado_em'),
+      supabase.from('fixos').select('*').eq('user_id', user.id).order('criado_em'),
     ])
     setLancamentos(l.data || [])
     let catsData = c.data || []
-    // insert default cats if none
     if (catsData.length === 0) {
       const toInsert = DEFAULT_CATS.map(d => ({...d, user_id: user.id}))
       const { data: inserted } = await supabase.from('categorias').insert(toInsert).select()
@@ -87,35 +83,31 @@ export default function Dashboard({ user, onLogout }) {
     setCats(catsData)
     setFixos(f.data || [])
     setLoading(false)
-  }, [user.id])
+  }, [user])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { if (user && user.id) load() }, [load, user])
 
-  // Month items
   const monthKey = `${curY}-${String(curM+1).padStart(2,'0')}`
   const monthItems = lancamentos.filter(d => d.data && d.data.startsWith(monthKey))
-  // Also include fixos as virtual items
   const fixosAtivos = fixos.filter(f => f.ativo)
   const fixosVirtuais = fixosAtivos.map(f => ({
     id: 'fixo_'+f.id, descricao: f.descricao, valor: f.valor,
     tipo: f.tipo, categoria: f.categoria, data: `${monthKey}-${String(f.dia_vencimento).padStart(2,'0')}`,
     isFixo: true, fixoId: f.id
   }))
-  // combine real + fixos for display (fixos only shown if not already manually added this month)
   const fixoIdsThisMonth = new Set(monthItems.filter(l=>l.fixo_id).map(l=>l.fixo_id))
   const pendingFixos = fixosVirtuais.filter(f => !fixoIdsThisMonth.has(f.fixoId))
-
   const allMonthItems = [...monthItems, ...pendingFixos]
-  const rec = allMonthItems.filter(d=>d.tipo==='receita').reduce((s,d)=>s+Number(d.valor),0)
-  const desp = allMonthItems.filter(d=>d.tipo==='despesa').reduce((s,d)=>s+Number(d.valor),0)
+  const rec = allMonthItems.filter(d=>d.tipo==='receita').reduce((s,d)=>s+Number(d.valor||0),0)
+  const desp = allMonthItems.filter(d=>d.tipo==='despesa').reduce((s,d)=>s+Number(d.valor||0),0)
   const saldo = rec - desp
 
   function prevMonth() { if(curM===0){setCurM(11);setCurY(y=>y-1)}else setCurM(m=>m-1) }
   function nextMonth() { if(curM===11){setCurM(0);setCurY(y=>y+1)}else setCurM(m=>m+1) }
 
-  // ADD LANCAMENTO
   async function addLancamento() {
     if (!desc || !valor || Number(valor)<=0 || !data) { showToast('⚠️ Preencha todos os campos!'); return }
+    if (!user || !user.id) return
     setSaving(true)
     if (parcOn && Number(parcN) >= 2) {
       const total = Number(parcN)
@@ -135,32 +127,26 @@ export default function Dashboard({ user, onLogout }) {
       showToast(tipo==='receita'?'✅ Receita salva!':'✅ Despesa salva!')
     }
     setDesc(''); setValor(''); setParcOn(false); setParcN('')
-    setModal(null); setSaving(false)
-    load()
+    setModal(null); setSaving(false); load()
   }
 
-  // ADD FIXO
   async function addFixo() {
     if (!fDesc || !fValor || Number(fValor)<=0) { showToast('⚠️ Preencha todos os campos!'); return }
+    if (!user || !user.id) return
     setSaving(true)
     await supabase.from('fixos').insert([{user_id:user.id, descricao:fDesc, valor:Number(fValor), tipo:fTipo, categoria:fCat, dia_vencimento:Number(fDia)}])
-    setFDesc(''); setFValor('')
-    setModal(null); setSaving(false)
-    showToast('✅ Fixo adicionado!')
-    load()
+    setFDesc(''); setFValor(''); setModal(null); setSaving(false)
+    showToast('✅ Fixo adicionado!'); load()
   }
 
-  // TOGGLE FIXO
   async function toggleFixo(id, ativo) {
-    await supabase.from('fixos').update({ativo:!ativo}).eq('id',id)
-    load()
+    await supabase.from('fixos').update({ativo:!ativo}).eq('id',id); load()
   }
 
-  // DEL LANCAMENTO
   async function delLancamento(item) {
     if (item.parc_id) {
       const all = lancamentos.filter(l=>l.parc_id===item.parc_id)
-      if (window.confirm(`Remover só esta parcela ou TODAS (${all.length}) parcelas?`)) {
+      if (window.confirm(`Remover só esta parcela ou TODAS (${all.length})?`)) {
         if (window.confirm('OK = remover TODAS, Cancelar = só esta')) {
           await supabase.from('lancamentos').delete().eq('parc_id', item.parc_id)
           showToast('🗑️ Todas as parcelas removidas.')
@@ -177,33 +163,27 @@ export default function Dashboard({ user, onLogout }) {
     load()
   }
 
-  // DEL FIXO
   async function delFixo(id) {
     if (!window.confirm('Remover este fixo?')) return
     await supabase.from('fixos').delete().eq('id', id)
     showToast('🗑️ Fixo removido.'); load()
   }
 
-  // ADD CAT
   async function addCat() {
     if (!newCatNome) { showToast('⚠️ Digite o nome!'); return }
+    if (!user || !user.id) return
     await supabase.from('categorias').insert([{user_id:user.id, nome:newCatNome, emoji:newCatEmoji, tipo:newCatTipo}])
     setNewCatNome(''); showToast('✅ Categoria adicionada!'); load()
   }
 
-  // DEL CAT
   async function delCat(id, nome) {
     if (!window.confirm(`Remover a categoria "${nome}"?`)) return
     await supabase.from('categorias').delete().eq('id', id)
     showToast('🗑️ Categoria removida.'); load()
   }
 
-  // LOGOUT
-  async function logout() {
-    await supabase.auth.signOut(); onLogout()
-  }
+  async function logout() { await supabase.auth.signOut(); onLogout() }
 
-  // EXPORT
   function exportData() {
     const payload = JSON.stringify({exportedAt:new Date().toISOString(), lancamentos, fixos, cats}, null, 2)
     const blob = new Blob([payload], {type:'application/json'})
@@ -213,7 +193,6 @@ export default function Dashboard({ user, onLogout }) {
     URL.revokeObjectURL(url); showToast('📁 Backup exportado!')
   }
 
-  // MODAL helpers
   function openModal(type) {
     setModal(type)
     if (type==='lancamento') {
@@ -229,22 +208,12 @@ export default function Dashboard({ user, onLogout }) {
     }
   }
 
-  function changeTipo(t) {
-    setTipo(t)
-    const dc = cats.find(c=>c.tipo===t)
-    setCatSel(dc?.nome || '')
-  }
+  function changeTipo(t) { setTipo(t); const dc=cats.find(c=>c.tipo===t); setCatSel(dc?.nome||'') }
+  function changeFTipo(t) { setFTipo(t); const dc=cats.find(c=>c.tipo===t); setFCat(dc?.nome||'') }
 
-  function changeFTipo(t) {
-    setFTipo(t)
-    const dc = cats.find(c=>c.tipo===t)
-    setFCat(dc?.nome || '')
-  }
-
-  // BARS
   function renderBars(items, total) {
     const catMap = {}
-    items.filter(d=>d.tipo==='despesa').forEach(d=>{catMap[d.categoria]=(catMap[d.categoria]||0)+Number(d.valor)})
+    items.filter(d=>d.tipo==='despesa').forEach(d=>{catMap[d.categoria]=(catMap[d.categoria]||0)+Number(d.valor||0)})
     const sorted = Object.entries(catMap).sort((a,b)=>b[1]-a[1])
     const maxV = sorted.length ? sorted[0][1] : 1
     if (!sorted.length) return <div className="empty"><span className="ei">📭</span>Nenhuma despesa neste mês</div>
@@ -254,12 +223,11 @@ export default function Dashboard({ user, onLogout }) {
           <span className="bar-name">{catEmoji(cat,cats)} {cat}</span>
           <span className="bar-pct">{fmt(val)}{total?` · ${Math.round(val/total*100)}%`:''}</span>
         </div>
-        <div className="bar-track"><div className="bar-fill" style={{width:`${Math.round(val/maxV*100)}%`,background:catColor(cat,cats)}}></div></div>
+        <div className="bar-track"><div className="bar-fill" style={{width:`${Math.round(val/maxV*100)}%`,background:catColor(cat)}}></div></div>
       </div>
     ))
   }
 
-  // ITEM HTML
   function ItemRow({item, showDel=false}) {
     const isParc = !!item.parc_id
     const isFixo = !!item.isFixo
@@ -283,7 +251,6 @@ export default function Dashboard({ user, onLogout }) {
     )
   }
 
-  // FILTERED LIST
   const filteredItems = (() => {
     if (filter==='todos') return allMonthItems
     if (filter==='receita') return allMonthItems.filter(d=>d.tipo==='receita')
@@ -293,7 +260,6 @@ export default function Dashboard({ user, onLogout }) {
     return allMonthItems
   })()
 
-  // TREND
   function trendData() {
     const result = []
     for (let i=5; i>=0; i--) {
@@ -301,13 +267,14 @@ export default function Dashboard({ user, onLogout }) {
       while(m<0){m+=12;y--}
       const key=`${y}-${String(m+1).padStart(2,'0')}`
       const its=lancamentos.filter(d=>d.data&&d.data.startsWith(key))
-      const r=its.filter(d=>d.tipo==='receita').reduce((s,d)=>s+Number(d.valor),0)
-      const dp=its.filter(d=>d.tipo==='despesa').reduce((s,d)=>s+Number(d.valor),0)
+      const r=its.filter(d=>d.tipo==='receita').reduce((s,d)=>s+Number(d.valor||0),0)
+      const dp=its.filter(d=>d.tipo==='despesa').reduce((s,d)=>s+Number(d.valor||0),0)
       result.push({label:MONTHS[m].slice(0,3),rec:r,desp:dp})
     }
     return result
   }
 
+  if (!user) return <div className="loading">Carregando...</div>
   if (loading) return <div className="loading">Carregando seus dados...</div>
 
   const modalCats = cats.filter(c=>c.tipo===tipo)
@@ -316,29 +283,26 @@ export default function Dashboard({ user, onLogout }) {
   const maxTrend = Math.max(...trend.map(x=>Math.max(x.rec,x.desp)),1)
   const allDes = lancamentos.filter(d=>d.tipo==='despesa')
   const allRec = lancamentos.filter(d=>d.tipo==='receita')
-  const catMapAll = {}; allDes.forEach(d=>{catMapAll[d.categoria]=(catMapAll[d.categoria]||0)+Number(d.valor)})
+  const catMapAll = {}; allDes.forEach(d=>{catMapAll[d.categoria]=(catMapAll[d.categoria]||0)+Number(d.valor||0)})
   const catsAll = Object.entries(catMapAll).sort((a,b)=>b[1]-a[1]).slice(0,8)
-  const totalAllDesp = allDes.reduce((s,d)=>s+Number(d.valor),0)
+  const totalAllDesp = allDes.reduce((s,d)=>s+Number(d.valor||0),0)
   const maxAllCat = catsAll.length ? catsAll[0][1] : 1
   const meses = new Set(lancamentos.map(d=>d.data?.slice(0,7))).size
-  const mrec = allRec.length ? allRec.reduce((mx,d)=>Number(d.valor)>Number(mx.valor)?d:mx,allRec[0]) : null
-  const mdes = allDes.length ? allDes.reduce((mx,d)=>Number(d.valor)>Number(mx.valor)?d:mx,allDes[0]) : null
-
-  // Parcelas ativas
+  const mrec = allRec.length ? allRec.reduce((mx,d)=>Number(d.valor||0)>Number(mx.valor||0)?d:mx,allRec[0]) : null
+  const mdes = allDes.length ? allDes.reduce((mx,d)=>Number(d.valor||0)>Number(mx.valor||0)?d:mx,allDes[0]) : null
   const today = new Date().toISOString().slice(0,10)
   const parcIds = new Set(lancamentos.filter(d=>d.parc_id&&d.data>=today).map(d=>d.parc_id))
   const parcelasAtivas = [...parcIds].map(pid => {
     const all = lancamentos.filter(d=>d.parc_id===pid).sort((a,b)=>a.data.localeCompare(b.data))
     const future = all.filter(d=>d.data>=today)
     const first = all[0]
-    const totalVal = all.reduce((s,d)=>s+Number(d.valor),0)
-    const remaining = future.reduce((s,d)=>s+Number(d.valor),0)
+    const totalVal = all.reduce((s,d)=>s+Number(d.valor||0),0)
+    const remaining = future.reduce((s,d)=>s+Number(d.valor||0),0)
     return {pid, first, future, all, totalVal, remaining}
   })
 
   return (
     <>
-      {/* TABS */}
       <div className="tabs">
         <div className="tab-nav">
           {[['inicio','🏠','Início'],['lancamentos','📋','Lançamentos'],['relatorio','📊','Relatório'],['fixos','🔄','Fixos'],['config','⚙️','Config']].map(([id,icon,label])=>(
@@ -349,7 +313,7 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* ===== INÍCIO ===== */}
+      {/* INÍCIO */}
       <div className={`page${tab==='inicio'?' on':''}`}>
         <div className="month-nav">
           <button className="mnav-btn" onClick={prevMonth}>‹</button>
@@ -375,9 +339,7 @@ export default function Dashboard({ user, onLogout }) {
                     <div className="item-desc">{f.descricao} <span className="badge badge-fixo">fixo</span></div>
                     <div className="item-sub">{f.categoria} · todo dia {f.dia_vencimento}</div>
                   </div>
-                  <div className="item-right">
-                    <div className="item-val r">-{fmt(f.valor)}</div>
-                  </div>
+                  <div className="item-right"><div className="item-val r">-{fmt(f.valor)}</div></div>
                 </div>
               ))}
             </div>
@@ -396,7 +358,7 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* ===== LANÇAMENTOS ===== */}
+      {/* LANÇAMENTOS */}
       <div className={`page${tab==='lancamentos'?' on':''}`}>
         <div className="month-nav">
           <button className="mnav-btn" onClick={prevMonth}>‹</button>
@@ -411,12 +373,12 @@ export default function Dashboard({ user, onLogout }) {
         <div className="sec" style={{marginTop:4}}>
           <div className="card">
             {filteredItems.length===0 && <div className="empty"><span className="ei">📭</span>Nenhum lançamento aqui</div>}
-            {[...filteredItems].sort((a,b)=>b.data?.localeCompare(a.data)).map(item=><ItemRow key={item.id} item={item} showDel={true} />)}
+            {[...filteredItems].sort((a,b)=>(b.data||'').localeCompare(a.data||'')).map(item=><ItemRow key={item.id} item={item} showDel={true} />)}
           </div>
         </div>
       </div>
 
-      {/* ===== RELATÓRIO ===== */}
+      {/* RELATÓRIO */}
       <div className={`page${tab==='relatorio'?' on':''}`}>
         <div style={{padding:'16px 20px 4px'}}>
           <div style={{fontSize:18,fontWeight:600}}>Relatório geral</div>
@@ -427,7 +389,7 @@ export default function Dashboard({ user, onLogout }) {
           <div className="rel-card"><div className="rel-label">Meses ativos</div><div className="rel-val">{meses}</div></div>
           <div className="rel-card"><div className="rel-label">Maior receita</div><div className="rel-val g">{mrec?fmt(mrec.valor):'—'}</div></div>
           <div className="rel-card"><div className="rel-label">Maior despesa</div><div className="rel-val r">{mdes?fmt(mdes.valor):'—'}</div></div>
-          <div className="rel-card"><div className="rel-label">Média rec./mês</div><div className="rel-val g">{meses?fmt(allRec.reduce((s,d)=>s+Number(d.valor),0)/meses):'—'}</div></div>
+          <div className="rel-card"><div className="rel-label">Média rec./mês</div><div className="rel-val g">{meses?fmt(allRec.reduce((s,d)=>s+Number(d.valor||0),0)/meses):'—'}</div></div>
           <div className="rel-card"><div className="rel-label">Média desp./mês</div><div className="rel-val r">{meses?fmt(totalAllDesp/meses):'—'}</div></div>
         </div>
         <div className="sec" style={{marginTop:16}}>
@@ -452,7 +414,7 @@ export default function Dashboard({ user, onLogout }) {
             {catsAll.map(([cat,val])=>(
               <div className="bar-row" key={cat}>
                 <div className="bar-top"><span className="bar-name">{catEmoji(cat,cats)} {cat}</span><span className="bar-pct">{fmt(val)}{totalAllDesp?` · ${Math.round(val/totalAllDesp*100)}%`:''}</span></div>
-                <div className="bar-track"><div className="bar-fill" style={{width:`${Math.round(val/maxAllCat*100)}%`,background:catColor(cat,cats)}}></div></div>
+                <div className="bar-track"><div className="bar-fill" style={{width:`${Math.round(val/maxAllCat*100)}%`,background:catColor(cat)}}></div></div>
               </div>
             ))}
           </div>
@@ -478,17 +440,17 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* ===== FIXOS ===== */}
+      {/* FIXOS */}
       <div className={`page${tab==='fixos'?' on':''}`}>
         <div style={{padding:'16px 20px 4px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
           <div>
             <div style={{fontSize:18,fontWeight:600}}>Custos fixos</div>
-            <div style={{fontSize:13,color:'var(--t3)',marginTop:2}}>Lançados automaticamente todo mês</div>
+            <div style={{fontSize:13,color:'var(--t3)',marginTop:2}}>Aparecem automaticamente todo mês</div>
           </div>
           <button style={{padding:'9px 16px',fontSize:14,fontWeight:600,border:'none',borderRadius:'var(--rads)',background:'var(--t1)',color:'#fff',cursor:'pointer',fontFamily:'inherit'}} onClick={()=>openModal('fixo')}>+ Novo</button>
         </div>
         <div className="sec" style={{marginTop:12}}>
-          <div className="sec-title">Total fixo mensal: {fmt(fixosAtivos.reduce((s,f)=>f.tipo==='despesa'?s+Number(f.valor):s,0))}</div>
+          <div className="sec-title">Total fixo mensal: {fmt(fixosAtivos.reduce((s,f)=>f.tipo==='despesa'?s+Number(f.valor||0):s,0))}</div>
           <div className="card">
             {fixos.length===0 && <div className="empty"><span className="ei">🔄</span>Nenhum custo fixo cadastrado.<br/>Adicione aluguel, plano de saúde, etc.</div>}
             {fixos.map(f=>(
@@ -499,7 +461,7 @@ export default function Dashboard({ user, onLogout }) {
                   <div className="item-sub">{f.categoria} · todo dia {f.dia_vencimento} · {fmt(f.valor)}</div>
                 </div>
                 <label className="fixo-toggle">
-                  <input type="checkbox" checked={f.ativo} onChange={()=>toggleFixo(f.id,f.ativo)} />
+                  <input type="checkbox" checked={!!f.ativo} onChange={()=>toggleFixo(f.id,f.ativo)} />
                   <span className="fixo-slider"></span>
                 </label>
                 <button className="del-btn" onClick={()=>delFixo(f.id)}>×</button>
@@ -509,14 +471,13 @@ export default function Dashboard({ user, onLogout }) {
         </div>
       </div>
 
-      {/* ===== CONFIG ===== */}
+      {/* CONFIG */}
       <div className={`page${tab==='config'?' on':''}`}>
         <div style={{padding:'16px 20px 4px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
           <div style={{fontSize:18,fontWeight:600}}>Configurações</div>
           <button style={{padding:'8px 14px',fontSize:13,border:'1px solid var(--border)',borderRadius:'var(--rads)',background:'var(--card)',cursor:'pointer',color:'var(--t2)',fontFamily:'inherit'}} onClick={logout}>Sair</button>
         </div>
-        <div style={{padding:'4px 20px 0',fontSize:13,color:'var(--t3)'}}>Conta: {user.email}</div>
-
+        <div style={{padding:'4px 20px 0',fontSize:13,color:'var(--t3)'}}>{user?.email}</div>
         <div className="sec" style={{marginTop:16}}>
           <div className="sec-title">Minhas categorias</div>
           <div className="cat-form">
@@ -543,24 +504,20 @@ export default function Dashboard({ user, onLogout }) {
             ))}
           </div>
         </div>
-
         <div className="sec" style={{marginTop:20}}>
           <div className="sec-title">Backup</div>
-          <div className="bk-tip"><span>💡</span><span>Exporte seus dados como arquivo de segurança. Seus dados já ficam salvos na nuvem automaticamente, mas o backup é uma camada extra de segurança.</span></div>
+          <div className="bk-tip"><span>💡</span><span>Seus dados ficam salvos na nuvem automaticamente. O backup é uma camada extra de segurança.</span></div>
           <div className="bk-grid">
             <button className="bk-btn pri" onClick={exportData}><span className="bi">📤</span>Exportar JSON</button>
-            <button className="bk-btn" style={{background:'var(--r)',color:'#fff',borderColor:'var(--r)'}} onClick={()=>{if(window.confirm('Apagar TODOS os dados permanentemente?'))supabase.from('lancamentos').delete().neq('id','x').then(()=>{load();showToast('🗑️ Dados apagados.')})}}>
+            <button className="bk-btn" style={{background:'var(--r)',color:'#fff',borderColor:'var(--r)'}} onClick={async()=>{if(window.confirm('Apagar TODOS os dados permanentemente?')){await supabase.from('lancamentos').delete().eq('user_id',user.id);load();showToast('🗑️ Dados apagados.')}}}>
               <span className="bi">🗑️</span>Apagar tudo
             </button>
           </div>
         </div>
       </div>
 
-      {/* FAB */}
       <button className="fab" onClick={()=>openModal('lancamento')}>+</button>
-
-      {/* TOAST */}
-      <div className={`toast${toastVisible?' show':''}`}>{toast}</div>
+      <div className={`toast${toastVisible?' show':''}`}>{toastMsg}</div>
 
       {/* MODAL LANCAMENTO */}
       {modal==='lancamento' && (
@@ -596,7 +553,7 @@ export default function Dashboard({ user, onLogout }) {
               )}
             </div>
             <button className={`save-btn ${tipo==='receita'?'rec':'des'}`} onClick={addLancamento} disabled={saving}>
-              {saving?<><span className="spinner"></span>Salvando...</>:`${tipo==='receita'?'💰 Salvar receita':'💸 Salvar despesa'}`}
+              {saving?'Salvando...':tipo==='receita'?'💰 Salvar receita':'💸 Salvar despesa'}
             </button>
           </div>
         </div>
@@ -608,10 +565,10 @@ export default function Dashboard({ user, onLogout }) {
           <div className="modal">
             <div className="modal-handle"></div>
             <div className="modal-title">Novo custo fixo</div>
-            <div style={{fontSize:13,color:'var(--t2)',marginBottom:16,lineHeight:1.5}}>Custos fixos aparecem automaticamente todo mês no seu painel.</div>
+            <div style={{fontSize:13,color:'var(--t2)',marginBottom:16,lineHeight:1.5}}>Aparece automaticamente todo mês no seu painel.</div>
             <div className="tipo-toggle">
-              <button className={`tipo-btn${fTipo==='receita'?' on-rec':''}`} onClick={()=>changeFTipo('receita')}>💰 Entrada</button>
-              <button className={`tipo-btn${fTipo==='despesa'?' on-des':''}`} onClick={()=>changeFTipo('despesa')}>💸 Saída</button>
+              <button className={`tipo-btn${fTipo==='receita'?' on-rec':''}`} onClick={()=>changeFTipo('receita')}>💰 Entrada fixa</button>
+              <button className={`tipo-btn${fTipo==='despesa'?' on-des':''}`} onClick={()=>changeFTipo('despesa')}>💸 Saída fixa</button>
             </div>
             <div className="form-card">
               <div className="ff"><label>Nome</label><input placeholder="ex: Plano de saúde" value={fDesc} onChange={e=>setFDesc(e.target.value)} /></div>
@@ -622,13 +579,13 @@ export default function Dashboard({ user, onLogout }) {
                 </select>
               </div>
               <div className="ff"><label>Dia do mês</label>
-                <select value={fDia} onChange={e=>setFDia(e.target.value)} style={{fontFamily:'DM Mono,monospace'}}>
+                <select value={fDia} onChange={e=>setFDia(e.target.value)}>
                   {Array.from({length:28},(_,i)=><option key={i+1} value={i+1}>Dia {i+1}</option>)}
                 </select>
               </div>
             </div>
             <button className={`save-btn ${fTipo==='receita'?'rec':'des'}`} onClick={addFixo} disabled={saving}>
-              {saving?<><span className="spinner"></span>Salvando...</>:'✅ Salvar fixo'}
+              {saving?'Salvando...':'✅ Salvar fixo'}
             </button>
           </div>
         </div>
