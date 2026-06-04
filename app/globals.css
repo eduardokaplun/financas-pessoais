@@ -225,3 +225,14 @@ a { text-decoration: none; color: inherit; }
   body { max-width: 480px; margin: 0 auto; }
   .hero-val { font-size: 52px; }
 }
+
+/* INVESTIMENTO */
+.item-ico.inv { background: #fffbeb; }
+.item-val.inv { color: #f59e0b; }
+.metric-val.inv { color: #f59e0b; }
+.rel-val.inv { color: #f59e0b; }
+.badge-inv { background: #fffbeb; color: #d97706; }
+.tipo-btn.on-investimento { background: #fffbeb; color: #d97706; }
+.tipo-btn.on-receita { background: #f0fdf8; color: var(--g); }
+.tipo-btn.on-despesa { background: #fff5f5; color: var(--r); }
+.save-btn.inv-btn { background: #f59e0b; color: #fff; }
