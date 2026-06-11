@@ -129,7 +129,18 @@ export default function Dashboard({user,onLogout}){
   const totalFP=fatsPagas.reduce((s,f)=>s+Number(f.valor_total||0),0)
   const saldo=rec-desp-inv-totalFP
 
-  function gcMes(cid,key){return lancs.filter(d=>d.cartao_id===cid&&d.data?.startsWith(key))}
+  function gcMes(cid,key){
+    const lcs=lancs.filter(d=>d.cartao_id===cid&&d.data?.startsWith(key))
+    const fxs=fixos.filter(f=>f.cartao_id===cid&&f.ativo).map(f=>({
+      id:'fixo_'+f.id,descricao:f.descricao,valor:f.valor,tipo:f.tipo,
+      categoria:f.categoria,data:key+'-'+String(f.dia_vencimento).padStart(2,'0'),
+      isFixo:true,cartao_id:cid
+    }))
+    // avoid duplication: only add fixo if not already in lancamentos
+    const lcsFixoIds=new Set(lcs.filter(l=>l.fixo_id).map(l=>l.fixo_id))
+    const fxsNew=fxs.filter(f=>!lcsFixoIds.has(f.id.replace('fixo_','')))
+    return [...lcs,...fxsNew]
+  }
   function tcMes(cid,key){return gcMes(cid,key).reduce((s,d)=>s+Number(d.valor||0),0)}
   function fpaga(cid,key){return faturas.find(f=>f.cartao_id===cid&&f.mes_ref===key)}
 
