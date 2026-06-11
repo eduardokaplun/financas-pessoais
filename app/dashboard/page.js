@@ -72,6 +72,7 @@ export default function Dashboard({user,onLogout}){
   const [fCat,setFCat]=useState('')
   const [fTipo,setFTipo]=useState('despesa')
   const [fDia,setFDia]=useState('1')
+  const [editFixoId,setEditFixoId]=useState(null)
   const [cNome,setCNome]=useState('')
   const [cBand,setCBand]=useState('Visa')
   const [cLim,setCLim]=useState('')
@@ -150,8 +151,13 @@ export default function Dashboard({user,onLogout}){
   function openCartao(){setModal('cartao');setCNome('');setCBand('Visa');setCLim('');setCFech('1');setCVenc('10');setCCor('#2f6fed')}
   function openPF(c){setPfCartao(c);setPfMes(mk);setPfData(new Date().toISOString().slice(0,10));setModal('pf')}
   function openFixo(){
-    setModal('fixo');setFDesc('');setFValor('')
+    setModal('fixo');setEditFixoId(null);setFDesc('');setFValor('')
     setFTipo('despesa');setFCat(cats.find(c=>c.tipo==='despesa')?.nome||'');setFDia('1')
+  }
+  function openEditFixo(f){
+    setModal('fixo');setEditFixoId(f.id)
+    setFDesc(f.descricao||'');setFValor(String(f.valor||''))
+    setFTipo(f.tipo||'despesa');setFCat(f.categoria||'');setFDia(String(f.dia_vencimento||'1'))
   }
 
   async function saveLanc(){
@@ -177,8 +183,14 @@ export default function Dashboard({user,onLogout}){
   async function saveFixo(){
     if(!fDesc||!fValor||Number(fValor)<=0){showT('⚠️ Preencha todos!');return}
     setSaving(true)
-    await sb.from('fixos').insert([{user_id:user.id,descricao:fDesc,valor:Number(fValor),tipo:fTipo,categoria:fCat,dia_vencimento:Number(fDia)}])
-    setModal(null);setSaving(false);showT('✅ Fixo adicionado!');load()
+    if(editFixoId){
+      await sb.from('fixos').update({descricao:fDesc,valor:Number(fValor),tipo:fTipo,categoria:fCat,dia_vencimento:Number(fDia)}).eq('id',editFixoId)
+      showT('✅ Fixo atualizado!')
+    }else{
+      await sb.from('fixos').insert([{user_id:user.id,descricao:fDesc,valor:Number(fValor),tipo:fTipo,categoria:fCat,dia_vencimento:Number(fDia)}])
+      showT('✅ Fixo adicionado!')
+    }
+    setModal(null);setSaving(false);load()
   }
   async function saveCartao(){
     if(!cNome){showT('⚠️ Digite o nome!');return}
@@ -412,6 +424,25 @@ export default function Dashboard({user,onLogout}){
       <div className={`page${tab==='config'?' on':''}`}>
         <div style={{padding:'16px 20px 4px',display:'flex',alignItems:'center',justifyContent:'space-between'}}><div style={{fontSize:18,fontWeight:600}}>Configurações</div><button style={{padding:'8px 14px',fontSize:13,border:'1px solid var(--border)',borderRadius:'var(--rads)',background:'var(--card)',cursor:'pointer',color:'var(--t2)',fontFamily:'inherit'}} onClick={async()=>{await sb.auth.signOut();onLogout()}}>Sair</button></div>
         <div style={{padding:'4px 20px 0',fontSize:13,color:'var(--t3)'}}>{user?.email}</div>
+        <div className="sec" style={{marginTop:16}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+            <div className="sec-title" style={{margin:0}}>Custos fixos</div>
+            <button style={{padding:'7px 14px',fontSize:13,fontWeight:600,border:'none',borderRadius:'var(--rads)',background:'var(--t1)',color:'#fff',cursor:'pointer',fontFamily:'inherit'}} onClick={openFixo}>+ Novo</button>
+          </div>
+          <div style={{fontSize:11,color:'var(--t3)',marginBottom:8}}>Total mensal saídas: {fmt(fixosA.filter(f=>f.tipo==='despesa').reduce((s,f)=>s+Number(f.valor||0),0))}</div>
+          <div className="card">
+            {fixos.length===0&&<div className="empty"><span className="ei">🔄</span>Adicione aluguel, plano de saúde, aportes fixos...</div>}
+            {fixos.map(f=>(
+              <div className="fixo-item" key={f.id}>
+                <div className={'item-ico '+(f.tipo==='receita'?'g':f.tipo==='investimento'?'inv':'y')}>{catEmoji(f.categoria,cats)}</div>
+                <div className="item-info"><div className="item-desc">{f.descricao}{f.tipo==='investimento'&&<span className="badge badge-inv">invest.</span>}</div><div className="item-sub">{f.categoria} · dia {f.dia_vencimento} · {fmt(f.valor)}</div></div>
+                <label className="fixo-toggle"><input type="checkbox" checked={!!f.ativo} onChange={()=>toggleFixo(f.id,f.ativo)}/><span className="fixo-slider"></span></label>
+                <button className="del-btn" onClick={()=>openEditFixo(f)} style={{fontSize:14}}>✏️</button>
+                <button className="del-btn" onClick={()=>delFixo(f.id)}>×</button>
+              </div>
+            ))}
+          </div>
+        </div>
         <div className="sec" style={{marginTop:16}}><div className="sec-title">Minhas categorias</div>
           <div className="cat-form"><input placeholder="Nome da categoria" value={ncNome} onChange={e=>setNcNome(e.target.value)} maxLength={30}/><select value={ncEmoji} onChange={e=>setNcEmoji(e.target.value)}>{EMOJIS.map(e=><option key={e} value={e}>{e}</option>)}</select><select value={ncTipo} onChange={e=>setNcTipo(e.target.value)}><option value="despesa">Saída</option><option value="receita">Entrada</option><option value="investimento">Investimento</option></select><button onClick={addCat}>+ Adicionar</button></div>
           <div className="card">{cats.map(c=><div className="item" key={c.id||c.nome}><div style={{fontSize:22,width:32,textAlign:'center'}}>{c.emoji}</div><div className="item-info"><div className="item-desc">{c.nome}</div><div className="item-sub">{c.tipo==='receita'?'Entrada':c.tipo==='investimento'?'Investimento':'Saída'}</div></div>{c.id&&<button className="del-btn" onClick={()=>delCat(c.id,c.nome)}>×</button>}</div>)}</div>
@@ -446,7 +477,7 @@ export default function Dashboard({user,onLogout}){
       {modal==='fixo'&&(
         <div className="overlay open" onClick={e=>e.target.className==='overlay open'&&setModal(null)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-handle"></div><div className="modal-title">Novo custo fixo</div>
+            <div className="modal-handle"></div><div className="modal-title">{editFixoId?'Editar fixo':'Novo custo fixo'}</div>
             <TT value={fTipo} onChange={t=>{setFTipo(t);setFCat(cats.find(c=>c.tipo===t)?.nome||'')}}/>
             <div className="form-card">
               <div className="ff"><label htmlFor="fd">Nome</label><input id="fd" placeholder="ex: Plano de saúde" value={fDesc} onChange={e=>setFDesc(e.target.value)}/></div>
@@ -454,7 +485,7 @@ export default function Dashboard({user,onLogout}){
               <div className="ff"><label htmlFor="fc">Categoria</label><select id="fc" value={fCat} onChange={e=>setFCat(e.target.value)}>{cats.filter(c=>c.tipo===fTipo).map(c=><option key={c.id||c.nome} value={c.nome}>{c.emoji} {c.nome}</option>)}</select></div>
               <div className="ff"><label htmlFor="fd2">Dia do mês</label><select id="fd2" value={fDia} onChange={e=>setFDia(e.target.value)}>{Array.from({length:28},(_,i)=><option key={i+1} value={i+1}>Dia {i+1}</option>)}</select></div>
             </div>
-            <button className={`save-btn ${fTipo==='receita'?'rec':fTipo==='investimento'?'inv-btn':'des'}`} onClick={saveFixo} disabled={saving}>{saving?'Salvando...':'✅ Salvar fixo'}</button>
+            <button className={`save-btn ${fTipo==='receita'?'rec':fTipo==='investimento'?'inv-btn':'des'}`} onClick={saveFixo} disabled={saving}>{saving?'Salvando...':editFixoId?'✅ Atualizar fixo':'✅ Salvar fixo'}</button>
           </div>
         </div>
       )}
