@@ -73,6 +73,7 @@ export default function Dashboard({user,onLogout}){
   const [fTipo,setFTipo]=useState('despesa')
   const [fDia,setFDia]=useState('1')
   const [editFixoId,setEditFixoId]=useState(null)
+  const [fCartao,setFCartao]=useState('')
   const [cNome,setCNome]=useState('')
   const [cBand,setCBand]=useState('Visa')
   const [cLim,setCLim]=useState('')
@@ -152,12 +153,12 @@ export default function Dashboard({user,onLogout}){
   function openPF(c){setPfCartao(c);setPfMes(mk);setPfData(new Date().toISOString().slice(0,10));setModal('pf')}
   function openFixo(){
     setModal('fixo');setEditFixoId(null);setFDesc('');setFValor('')
-    setFTipo('despesa');setFCat(cats.find(c=>c.tipo==='despesa')?.nome||'');setFDia('1')
+    setFTipo('despesa');setFCat(cats.find(c=>c.tipo==='despesa')?.nome||'');setFDia('1');setFCartao('')
   }
   function openEditFixo(f){
     setModal('fixo');setEditFixoId(f.id)
     setFDesc(f.descricao||'');setFValor(String(f.valor||''))
-    setFTipo(f.tipo||'despesa');setFCat(f.categoria||'');setFDia(String(f.dia_vencimento||'1'))
+    setFTipo(f.tipo||'despesa');setFCat(f.categoria||'');setFDia(String(f.dia_vencimento||'1'));setFCartao(f.cartao_id||'')
   }
 
   async function saveLanc(){
@@ -184,10 +185,10 @@ export default function Dashboard({user,onLogout}){
     if(!fDesc||!fValor||Number(fValor)<=0){showT('⚠️ Preencha todos!');return}
     setSaving(true)
     if(editFixoId){
-      await sb.from('fixos').update({descricao:fDesc,valor:Number(fValor),tipo:fTipo,categoria:fCat,dia_vencimento:Number(fDia)}).eq('id',editFixoId)
+      await sb.from('fixos').update({descricao:fDesc,valor:Number(fValor),tipo:fTipo,categoria:fCat,dia_vencimento:Number(fDia),cartao_id:fCartao||null}).eq('id',editFixoId)
       showT('✅ Fixo atualizado!')
     }else{
-      await sb.from('fixos').insert([{user_id:user.id,descricao:fDesc,valor:Number(fValor),tipo:fTipo,categoria:fCat,dia_vencimento:Number(fDia)}])
+      await sb.from('fixos').insert([{user_id:user.id,descricao:fDesc,valor:Number(fValor),tipo:fTipo,categoria:fCat,dia_vencimento:Number(fDia),cartao_id:fCartao||null}])
       showT('✅ Fixo adicionado!')
     }
     setModal(null);setSaving(false);load()
@@ -435,7 +436,7 @@ export default function Dashboard({user,onLogout}){
             {fixos.map(f=>(
               <div className="fixo-item" key={f.id}>
                 <div className={'item-ico '+(f.tipo==='receita'?'g':f.tipo==='investimento'?'inv':'y')}>{catEmoji(f.categoria,cats)}</div>
-                <div className="item-info"><div className="item-desc">{f.descricao}{f.tipo==='investimento'&&<span className="badge badge-inv">invest.</span>}</div><div className="item-sub">{f.categoria} · dia {f.dia_vencimento} · {fmt(f.valor)}</div></div>
+                <div className="item-info"><div className="item-desc">{f.descricao}{f.tipo==='investimento'&&<span className="badge badge-inv">invest.</span>}{f.cartao_id&&<span className="badge badge-cartao">💳 {cartoes.find(c=>c.id===f.cartao_id)?.nome||''}</span>}</div><div className="item-sub">{f.categoria} · dia {f.dia_vencimento} · {fmt(f.valor)}</div></div>
                 <label className="fixo-toggle"><input type="checkbox" checked={!!f.ativo} onChange={()=>toggleFixo(f.id,f.ativo)}/><span className="fixo-slider"></span></label>
                 <button className="del-btn" onClick={()=>openEditFixo(f)} style={{fontSize:14}}>✏️</button>
                 <button className="del-btn" onClick={()=>delFixo(f.id)}>×</button>
@@ -484,6 +485,7 @@ export default function Dashboard({user,onLogout}){
               <div className="ff"><label htmlFor="fv">Valor R$</label><input id="fv" type="number" inputMode="decimal" placeholder="0,00" value={fValor} onChange={e=>setFValor(e.target.value)}/></div>
               <div className="ff"><label htmlFor="fc">Categoria</label><select id="fc" value={fCat} onChange={e=>setFCat(e.target.value)}>{cats.filter(c=>c.tipo===fTipo).map(c=><option key={c.id||c.nome} value={c.nome}>{c.emoji} {c.nome}</option>)}</select></div>
               <div className="ff"><label htmlFor="fd2">Dia do mês</label><select id="fd2" value={fDia} onChange={e=>setFDia(e.target.value)}>{Array.from({length:28},(_,i)=><option key={i+1} value={i+1}>Dia {i+1}</option>)}</select></div>
+              {fTipo==='despesa'&&cartoes.length>0&&<div className="ff"><label htmlFor="fcard">Cartão</label><select id="fcard" value={fCartao} onChange={e=>setFCartao(e.target.value)}><option value=''>Débito / Dinheiro</option>{cartoes.map(c=><option key={c.id} value={c.id}>💳 {c.nome}</option>)}</select></div>}
             </div>
             <button className={`save-btn ${fTipo==='receita'?'rec':fTipo==='investimento'?'inv-btn':'des'}`} onClick={saveFixo} disabled={saving}>{saving?'Salvando...':editFixoId?'✅ Atualizar fixo':'✅ Salvar fixo'}</button>
           </div>
