@@ -49,8 +49,6 @@ export default function Dashboard({user,onLogout}){
   const [fixos,setFixos]=useState([])
   const [cartoes,setCartoes]=useState([])
   const [faturas,setFaturas]=useState([])
-  const [diaInicioMes,setDiaInicioMes]=useState(1)
-  const [savingSettings,setSavingSettings]=useState(false)
   const [loading,setLoading]=useState(true)
   const now=new Date()
   const [curY,setCurY]=useState(now.getFullYear())
@@ -94,18 +92,16 @@ export default function Dashboard({user,onLogout}){
   const load=useCallback(async()=>{
     if(!user?.id)return
     setLoading(true)
-    const [l,c,f,cr,fat,cfg]=await Promise.all([
+    const [l,c,f,cr,fat]=await Promise.all([
       sb.from('lancamentos').select('*').eq('user_id',user.id).order('data',{ascending:false}),
       sb.from('categorias').select('*').eq('user_id',user.id).order('criado_em'),
       sb.from('fixos').select('*').eq('user_id',user.id).order('criado_em'),
       sb.from('cartoes').select('*').eq('user_id',user.id).order('criado_em'),
       sb.from('faturas').select('*').eq('user_id',user.id).order('criado_em',{ascending:false}),
-      sb.from('user_settings').select('*').eq('user_id',user.id).single(),
     ])
     setLancs(l.data||[])
     setCartoes(cr.data||[])
     setFaturas(fat.data||[])
-    if(cfg.data?.dia_inicio_mes) setDiaInicioMes(cfg.data.dia_inicio_mes)
     let cd=c.data||[]
     if(cd.length===0){
       const{data:ins}=await sb.from('categorias').insert(DEFAULT_CATS.map(d=>({...d,user_id:user.id}))).select()
@@ -120,37 +116,9 @@ export default function Dashboard({user,onLogout}){
 
   useEffect(()=>{if(user?.id)load()},[load,user])
 
-  // Mês financeiro: se diaInicioMes > 1, o mês vai de diaInicioMes até diaInicioMes-1 do mês seguinte
   const mk=`${curY}-${String(curM+1).padStart(2,'0')}`
-  function getFinancialMonthRange(y, m) {
-    if(diaInicioMes<=1) {
-      const start = `${y}-${String(m+1).padStart(2,'0')}-01`
-      const lastDay = new Date(y, m+1, 0).getDate()
-      const end = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
-      return {start, end}
-    }
-    // ex: dia=25, "Julho" financeiro => start=25/jun, end=24/jul
-    // O mês financeiro "m" começa no dia diaInicioMes do mês calendário m
-    const start=`${y}-${String(m+1).padStart(2,'0')}-${String(diaInicioMes).padStart(2,'0')}`
-    // Termina no dia diaInicioMes-1 do mês seguinte
-    let ey=y, em=m+1
-    if(em>11){em=0;ey++}
-    const endDay=diaInicioMes-1
-    const end=`${ey}-${String(em+1).padStart(2,'0')}-${String(endDay).padStart(2,'0')}`
-    return {start, end}
-  }
-  function getFinancialMonthLabel(y, m) {
-    // Qual nome de mês mostrar? O mês calendário onde cai o início do período financeiro
-    return MONTHS[m] + ' ' + y
-  }
-  function isInFinancialMonth(dateStr, y, m) {
-    if(!dateStr) return false
-    const {start, end} = getFinancialMonthRange(y, m)
-    return dateStr >= start && dateStr <= end
-  }
-  const fmRange = getFinancialMonthRange(curY, curM)
-  const mItems=lancs.filter(d=>isInFinancialMonth(d.data, curY, curM))
-  const fatsPagas=faturas.filter(f=>isInFinancialMonth(f.data_pagamento, curY, curM))
+  const mItems=lancs.filter(d=>d.data?.startsWith(mk))
+  const fatsPagas=faturas.filter(f=>f.data_pagamento?.startsWith(mk))
   const fixosA=fixos.filter(f=>f.ativo)
   const pendF=fixosA.filter(f=>!mItems.find(l=>l.fixo_id===f.id)).map(f=>({id:'fixo_'+f.id,descricao:f.descricao,valor:f.valor,tipo:f.tipo,categoria:f.categoria,data:`${mk}-${String(f.dia_vencimento).padStart(2,'0')}`,isFixo:true,fixoId:f.id}))
   const allM=[...mItems,...pendF]
@@ -289,16 +257,6 @@ export default function Dashboard({user,onLogout}){
   async function delFixo(id){if(!window.confirm('Remover?'))return;await sb.from('fixos').delete().eq('id',id);showT('🗑️ Removido.');load()}
   async function addCat(){if(!ncNome){showT('⚠️ Digite o nome!');return};await sb.from('categorias').insert([{user_id:user.id,nome:ncNome,emoji:ncEmoji,tipo:ncTipo}]);setNcNome('');showT('✅ Categoria!');load()}
   async function delCat(id,n){if(!window.confirm(`Remover "${n}"?`))return;await sb.from('categorias').delete().eq('id',id);showT('🗑️ Removida.');load()}
-  async function saveSettings(dia){
-    setSavingSettings(true)
-    const val=parseInt(dia)
-    if(isNaN(val)||val<1||val>28){showT('⚠️ Dia inválido (1-28)');setSavingSettings(false);return}
-    await sb.from('user_settings').upsert({user_id:user.id,dia_inicio_mes:val,atualizado_em:new Date().toISOString()},{onConflict:'user_id'})
-    setDiaInicioMes(val)
-    setSavingSettings(false)
-    showT('✅ Configuração salva! Recarregue para ver.')
-  }
-
   function exportData(){
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({exportedAt:new Date().toISOString(),lancs,fixos,cats,cartoes,faturas},null,2)],{type:'application/json'}))
     a.download=`financas_${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.json`;a.click();showT('📁 Exportado!')
@@ -401,10 +359,7 @@ export default function Dashboard({user,onLogout}){
       <div className={`page${tab==='inicio'?' on':''}`}>
         <div className="month-nav">
           <button className="mnav-btn" onClick={pm}>‹</button>
-          <div className="mnav-label">
-          {MONTHS[curM]} {curY}
-          {diaInicioMes>1&&<div style={{fontSize:10,color:'var(--t3)',fontWeight:400,marginTop:1}}>{fmRange.start.slice(8)}/{fmRange.start.slice(5,7)} – {fmRange.end.slice(8)}/{fmRange.end.slice(5,7)}</div>}
-        </div>
+          <div className="mnav-label">{MONTHS[curM]} {curY}</div>
           <button className="mnav-btn" onClick={nm}>›</button>
         </div>
         <div className="hero">
