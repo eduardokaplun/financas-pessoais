@@ -129,13 +129,19 @@ export default function Dashboard({user,onLogout}){
       const end = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
       return {start, end}
     }
-    // ex: dia=25, mês=junho(5) => start=25/mai, end=24/jun
-    let sy=y, sm=m-1
-    if(sm<0){sm=11;sy--}
-    const start=`${sy}-${String(sm+1).padStart(2,'0')}-${String(diaInicioMes).padStart(2,'0')}`
+    // ex: dia=25, "Julho" financeiro => start=25/jun, end=24/jul
+    // O mês financeiro "m" começa no dia diaInicioMes do mês calendário m
+    const start=`${y}-${String(m+1).padStart(2,'0')}-${String(diaInicioMes).padStart(2,'0')}`
+    // Termina no dia diaInicioMes-1 do mês seguinte
+    let ey=y, em=m+1
+    if(em>11){em=0;ey++}
     const endDay=diaInicioMes-1
-    const end=`${y}-${String(m+1).padStart(2,'0')}-${String(endDay).padStart(2,'0')}`
+    const end=`${ey}-${String(em+1).padStart(2,'0')}-${String(endDay).padStart(2,'0')}`
     return {start, end}
+  }
+  function getFinancialMonthLabel(y, m) {
+    // Qual nome de mês mostrar? O mês calendário onde cai o início do período financeiro
+    return MONTHS[m] + ' ' + y
   }
   function isInFinancialMonth(dateStr, y, m) {
     if(!dateStr) return false
@@ -395,7 +401,10 @@ export default function Dashboard({user,onLogout}){
       <div className={`page${tab==='inicio'?' on':''}`}>
         <div className="month-nav">
           <button className="mnav-btn" onClick={pm}>‹</button>
-          <div className="mnav-label">{MONTHS[curM]} {curY}</div>
+          <div className="mnav-label">
+          {MONTHS[curM]} {curY}
+          {diaInicioMes>1&&<div style={{fontSize:10,color:'var(--t3)',fontWeight:400,marginTop:1}}>{fmRange.start.slice(8)}/{fmRange.start.slice(5,7)} – {fmRange.end.slice(8)}/{fmRange.end.slice(5,7)}</div>}
+        </div>
           <button className="mnav-btn" onClick={nm}>›</button>
         </div>
         <div className="hero">
