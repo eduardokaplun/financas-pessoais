@@ -454,27 +454,7 @@ export default function Dashboard({user,onLogout}){
       {/* CONFIG */}
       <div className={`page${tab==='config'?' on':''}`}>
         <div style={{padding:'16px 20px 4px',display:'flex',alignItems:'center',justifyContent:'space-between'}}><div style={{fontSize:18,fontWeight:600}}>Configurações</div><button style={{padding:'8px 14px',fontSize:13,border:'1px solid var(--border)',borderRadius:'var(--rads)',background:'var(--card)',cursor:'pointer',color:'var(--t2)',fontFamily:'inherit'}} onClick={async()=>{await sb.auth.signOut();onLogout()}}>Sair</button></div>
-        <div style={{padding:'4px 20px 0',fontSize:13,color:'var(--t3)'}}>{user?.email}</div>
-        <div className="sec" style={{marginTop:16}}>
-          <div className="sec-title">Mês financeiro</div>
-          <div className="card" style={{padding:'14px 16px'}}>
-            <div style={{fontSize:14,color:'var(--t2)',marginBottom:12,lineHeight:1.6}}>
-              Defina o dia em que seu mês financeiro começa. Por exemplo, se você recebe dia <strong>25</strong>, seu mês vai de 25/mês anterior até 24/mês atual.
-            </div>
-            <div style={{display:'flex',alignItems:'center',gap:12}}>
-              <label style={{fontSize:14,fontWeight:500,color:'var(--t1)',flexShrink:0}}>Meu mês começa no dia</label>
-              <select
-                defaultValue={diaInicioMes}
-                onChange={e=>saveSettings(e.target.value)}
-                style={{padding:'8px 12px',fontSize:15,border:'1px solid var(--border)',borderRadius:'var(--rads)',background:'var(--bg)',color:'var(--t1)',fontFamily:'DM Sans,sans-serif',cursor:'pointer'}}
-              >
-                {Array.from({length:28},(_,i)=><option key={i+1} value={i+1}>{i+1===1?'1 (padrão)':i+1}</option>)}
-              </select>
-            </div>
-            {diaInicioMes>1&&<div style={{marginTop:10,fontSize:12,color:'var(--g),',background:'#f0fdf8',borderRadius:'var(--rads)',padding:'8px 12px',color:'var(--g)'}}>✅ Seu mês atual: {fmRange.start.slice(8)+'/'+fmRange.start.slice(5,7)} até {fmRange.end.slice(8)+'/'+fmRange.end.slice(5,7)}</div>}
-          </div>
-        </div>
-        <div className="sec" style={{marginTop:16}}>
+        <div style={{padding:'4px 20px 0',fontSize:13,color:'var(--t3)'}}>{user?.email}<<div className="sec" style={{marginTop:16}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
             <div className="sec-title" style={{margin:0}}>Custos fixos</div>
             <button style={{padding:'7px 14px',fontSize:13,fontWeight:600,border:'none',borderRadius:'var(--rads)',background:'var(--t1)',color:'#fff',cursor:'pointer',fontFamily:'inherit'}} onClick={openFixo}>+ Novo</button>
