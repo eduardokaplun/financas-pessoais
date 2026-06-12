@@ -203,9 +203,28 @@ export default function Dashboard({user,onLogout}){
     setSaving(true)
     if(mParcOn&&Number(mParcN)>=2){
       const tot=Number(mParcN),pv=parseFloat((Number(mValor)/tot).toFixed(2)),pid='parc_'+Date.now()
-      const[y,m,d]=mData.split('-').map(Number),rows=[]
-      for(let i=0;i<tot;i++){let pm=m-1+i,py=y;while(pm>=12){pm-=12;py++};rows.push({user_id:user.id,descricao:mDesc,valor:pv,tipo:mTipo,categoria:mCat,data:`${py}-${String(pm+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,parc_id:pid,parc_n:i+1,parc_total:tot,cartao_id:mCartao||null})}
-      await sb.from('lancamentos').insert(rows);showT(`✅ ${tot} parcelas!`)
+      const rows=[]
+      // Se tem cartão, usa o dia de vencimento do cartão como base
+      const cartaoSel=mCartao?cartoes.find(c=>c.id===mCartao):null
+      let baseDate
+      if(cartaoSel){
+        // Próximo vencimento a partir da data do lançamento
+        const today=new Date(mData+'T00:00:00')
+        const diaVenc=cartaoSel.dia_vencimento
+        let nextVenc=new Date(today.getFullYear(),today.getMonth(),diaVenc)
+        // Se o dia de vencimento já passou ou é hoje, vai pro próximo mês
+        if(nextVenc<=today) nextVenc=new Date(today.getFullYear(),today.getMonth()+1,diaVenc)
+        baseDate=nextVenc
+      }else{
+        const[y,m,d]=mData.split('-').map(Number)
+        baseDate=new Date(y,m-1,d)
+      }
+      for(let i=0;i<tot;i++){
+        const d=new Date(baseDate.getFullYear(),baseDate.getMonth()+i,baseDate.getDate())
+        const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+        rows.push({user_id:user.id,descricao:mDesc,valor:pv,tipo:mTipo,categoria:mCat,data:ds,parc_id:pid,parc_n:i+1,parc_total:tot,cartao_id:mCartao||null})
+      }
+      await sb.from('lancamentos').insert(rows);showT(`✅ ${tot} parcelas! 1ª: ${baseDate.getDate()}/${baseDate.getMonth()+1}`)
     }else{
       await sb.from('lancamentos').insert([{user_id:user.id,descricao:mDesc,valor:Number(mValor),tipo:mTipo,categoria:mCat,data:mData,cartao_id:mCartao||null}])
       showT(`${TIPO_INFO[mTipo].icon} Salvo!`)
