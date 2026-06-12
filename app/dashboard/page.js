@@ -18,7 +18,8 @@ const DEFAULT_CATS = [
   {nome:'Bitcoin (BTC)',emoji:'₿',tipo:'investimento'},{nome:'Criptomoedas',emoji:'🪙',tipo:'investimento'},
   {nome:'Ações',emoji:'📊',tipo:'investimento'},{nome:'Fundos',emoji:'🏦',tipo:'investimento'},
   {nome:'Tesouro Direto',emoji:'💎',tipo:'investimento'},{nome:'Renda Fixa',emoji:'🏗️',tipo:'investimento'},
-  {nome:'Poupança',emoji:'💰',tipo:'investimento'},{nome:'Outros (invest.)',emoji:'📈',tipo:'investimento'},
+  {nome:'Poupança',emoji:'💰',tipo:'investimento'},{nome:'Reserva de Emergência',emoji:'🛡️',tipo:'investimento'},
+  {nome:'Outros (invest.)',emoji:'📈',tipo:'investimento'},
 ]
 const CAT_COLORS = {
   'Alimentação':'#16a06a','Moradia':'#2f6fed','Transporte':'#d97706','Saúde':'#e03e3e',
@@ -27,7 +28,7 @@ const CAT_COLORS = {
   'Salário':'#16a06a','Freelance':'#2f6fed','Rendimentos':'#7c3aed','Outros (entrada)':'#6b7280',
   'Bitcoin (BTC)':'#f59e0b','Criptomoedas':'#f97316','Ações':'#10b981',
   'Fundos':'#6366f1','Tesouro Direto':'#8b5cf6','Renda Fixa':'#06b6d4',
-  'Poupança':'#14b8a6','Outros (invest.)':'#64748b',
+  'Poupança':'#14b8a6','Reserva de Emergência':'#16a06a','Outros (invest.)':'#64748b',
 }
 const TIPO_INFO = {
   receita:{cls:'g',prefix:'+',label:'Receita',icon:'💰',btnCls:'rec'},
@@ -72,8 +73,8 @@ export default function Dashboard({user,onLogout}){
   const [fCat,setFCat]=useState('')
   const [fTipo,setFTipo]=useState('despesa')
   const [fDia,setFDia]=useState('1')
-  const [editFixoId,setEditFixoId]=useState(null)
   const [fCartao,setFCartao]=useState('')
+  const [editFixoId,setEditFixoId]=useState(null)
   const [cNome,setCNome]=useState('')
   const [cBand,setCBand]=useState('Visa')
   const [cLim,setCLim]=useState('')
@@ -108,7 +109,7 @@ export default function Dashboard({user,onLogout}){
       cd=ins||DEFAULT_CATS
     }else{
       const ex=new Set(cd.map(c=>c.nome))
-      const miss=DEFAULT_CATS.filter(d=>d.tipo==='investimento'&&!ex.has(d.nome))
+      const miss=DEFAULT_CATS.filter(d=>!ex.has(d.nome))
       if(miss.length){const{data:ins2}=await sb.from('categorias').insert(miss.map(d=>({...d,user_id:user.id}))).select();cd=[...cd,...(ins2||[])]}
     }
     setCats(cd);setFixos(f.data||[]);setLoading(false)
@@ -120,7 +121,7 @@ export default function Dashboard({user,onLogout}){
   const mItems=lancs.filter(d=>d.data?.startsWith(mk))
   const fatsPagas=faturas.filter(f=>f.data_pagamento?.startsWith(mk))
   const fixosA=fixos.filter(f=>f.ativo)
-  const pendF=fixosA.filter(f=>!mItems.find(l=>l.fixo_id===f.id)).map(f=>({id:'fixo_'+f.id,descricao:f.descricao,valor:f.valor,tipo:f.tipo,categoria:f.categoria,data:`${mk}-${String(f.dia_vencimento).padStart(2,'0')}`,isFixo:true,fixoId:f.id}))
+  const pendF=fixosA.filter(f=>!f.cartao_id&&!mItems.find(l=>l.fixo_id===f.id)).map(f=>({id:'fixo_'+f.id,descricao:f.descricao,valor:f.valor,tipo:f.tipo,categoria:f.categoria,data:`${mk}-${String(f.dia_vencimento).padStart(2,'0')}`,isFixo:true,fixoId:f.id}))
   const allM=[...mItems,...pendF]
   const noCard=mItems.filter(d=>!d.cartao_id)
   const rec=[...noCard,...pendF.filter(f=>f.tipo==='receita')].filter(d=>d.tipo==='receita').reduce((s,d)=>s+Number(d.valor||0),0)
@@ -136,7 +137,6 @@ export default function Dashboard({user,onLogout}){
       categoria:f.categoria,data:key+'-'+String(f.dia_vencimento).padStart(2,'0'),
       isFixo:true,cartao_id:cid
     }))
-    // avoid duplication: only add fixo if not already in lancamentos
     const lcsFixoIds=new Set(lcs.filter(l=>l.fixo_id).map(l=>l.fixo_id))
     const fxsNew=fxs.filter(f=>!lcsFixoIds.has(f.id.replace('fixo_','')))
     return [...lcs,...fxsNew]
@@ -146,7 +146,6 @@ export default function Dashboard({user,onLogout}){
 
   function pm(){if(curM===0){setCurM(11);setCurY(y=>y-1)}else setCurM(m=>m-1)}
   function nm(){if(curM===11){setCurM(0);setCurY(y=>y+1)}else setCurM(m=>m+1)}
-
   function cmt(t){setMTipo(t);setMCat(cats.find(c=>c.tipo===t)?.nome||'')}
 
   function openNew(){
@@ -178,16 +177,13 @@ export default function Dashboard({user,onLogout}){
     if(mParcOn&&Number(mParcN)>=2){
       const tot=Number(mParcN),pv=parseFloat((Number(mValor)/tot).toFixed(2)),pid='parc_'+Date.now()
       const rows=[]
-      // Se tem cartão, usa o dia de vencimento do cartão como base
       const cartaoSel=mCartao?cartoes.find(c=>c.id===mCartao):null
       let baseDate
       if(cartaoSel){
-        // Próximo vencimento a partir da data do lançamento
         const today=new Date(mData+'T00:00:00')
         const diaVenc=cartaoSel.dia_vencimento
         let nextVenc=new Date(today.getFullYear(),today.getMonth(),diaVenc)
-        // Se o dia de vencimento já passou ou é hoje, vai pro próximo mês
-        if(nextVenc<=today) nextVenc=new Date(today.getFullYear(),today.getMonth()+1,diaVenc)
+        if(nextVenc<=today)nextVenc=new Date(today.getFullYear(),today.getMonth()+1,diaVenc)
         baseDate=nextVenc
       }else{
         const[y,m,d]=mData.split('-').map(Number)
@@ -198,19 +194,22 @@ export default function Dashboard({user,onLogout}){
         const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
         rows.push({user_id:user.id,descricao:mDesc,valor:pv,tipo:mTipo,categoria:mCat,data:ds,parc_id:pid,parc_n:i+1,parc_total:tot,cartao_id:mCartao||null})
       }
-      await sb.from('lancamentos').insert(rows);showT(`✅ ${tot} parcelas! 1ª: ${baseDate.getDate()}/${baseDate.getMonth()+1}`)
+      await sb.from('lancamentos').insert(rows)
+      showT(`✅ ${tot} parcelas! 1ª: ${baseDate.getDate()}/${baseDate.getMonth()+1}`)
     }else{
       await sb.from('lancamentos').insert([{user_id:user.id,descricao:mDesc,valor:Number(mValor),tipo:mTipo,categoria:mCat,data:mData,cartao_id:mCartao||null}])
       showT(`${TIPO_INFO[mTipo].icon} Salvo!`)
     }
     setModal(null);setSaving(false);load()
   }
+
   async function saveEdit(){
     if(!mDesc||!mValor||Number(mValor)<=0||!mData){showT('⚠️ Preencha todos!');return}
     setSaving(true)
     await sb.from('lancamentos').update({descricao:mDesc,valor:Number(mValor),tipo:mTipo,categoria:mCat,data:mData,cartao_id:mCartao||null}).eq('id',editId)
     showT('✅ Atualizado!');setModal(null);setSaving(false);load()
   }
+
   async function saveFixo(){
     if(!fDesc||!fValor||Number(fValor)<=0){showT('⚠️ Preencha todos!');return}
     setSaving(true)
@@ -223,12 +222,14 @@ export default function Dashboard({user,onLogout}){
     }
     setModal(null);setSaving(false);load()
   }
+
   async function saveCartao(){
     if(!cNome){showT('⚠️ Digite o nome!');return}
     setSaving(true)
     await sb.from('cartoes').insert([{user_id:user.id,nome:cNome,bandeira:cBand,limite:cLim?Number(cLim):null,dia_fechamento:Number(cFech),dia_vencimento:Number(cVenc),cor:cCor}])
     setModal(null);setSaving(false);showT('💳 Cartão adicionado!');load()
   }
+
   async function pagarFatura(){
     if(!pfCartao||!pfMes||!pfData){showT('⚠️ Preencha todos!');return}
     const tot=tcMes(pfCartao.id,pfMes)
@@ -237,6 +238,7 @@ export default function Dashboard({user,onLogout}){
     await sb.from('faturas').insert([{user_id:user.id,cartao_id:pfCartao.id,mes_ref:pfMes,valor_total:tot,data_pagamento:pfData}])
     setModal(null);setSaving(false);showT(`✅ Fatura ${fmt(tot)} paga!`);load()
   }
+
   async function delCartao(id){
     if(!window.confirm('Remover cartão?'))return
     await sb.from('cartoes').delete().eq('id',id);showT('🗑️ Removido.');load()
@@ -357,15 +359,8 @@ export default function Dashboard({user,onLogout}){
 
       {/* INÍCIO */}
       <div className={`page${tab==='inicio'?' on':''}`}>
-        <div className="month-nav">
-          <button className="mnav-btn" onClick={pm}>‹</button>
-          <div className="mnav-label">{MONTHS[curM]} {curY}</div>
-          <button className="mnav-btn" onClick={nm}>›</button>
-        </div>
-        <div className="hero">
-          <div className="hero-label">Saldo do mês</div>
-          <div className={`hero-val${saldo>0?' pos':saldo<0?' neg':' zero'}`}>{fmt(saldo)}</div>
-        </div>
+        <div className="month-nav"><button className="mnav-btn" onClick={pm}>‹</button><div className="mnav-label">{MONTHS[curM]} {curY}</div><button className="mnav-btn" onClick={nm}>›</button></div>
+        <div className="hero"><div className="hero-label">Saldo do mês</div><div className={`hero-val${saldo>0?' pos':saldo<0?' neg':' zero'}`}>{fmt(saldo)}</div></div>
         <div className="metrics">
           <div className="metric"><div className="metric-label">Receitas</div><div className="metric-val g">{fmt(rec)}</div></div>
           <div className="metric"><div className="metric-label">Despesas</div><div className="metric-val r">{fmt(desp+totalFP)}</div></div>
@@ -388,7 +383,7 @@ export default function Dashboard({user,onLogout}){
             </div>
           </div>
         )}
-        {fixosA.length>0&&<div className="sec"><div className="sec-title">Fixos do mês</div><div className="card">{fixosA.map(f=><div className="item" key={f.id}><div className={`item-ico ${f.tipo==='receita'?'g':f.tipo==='investimento'?'inv':'y'}`}>{catEmoji(f.categoria,cats)}</div><div className="item-info"><div className="item-desc">{f.descricao}<span className="badge badge-fixo">fixo</span></div><div className="item-sub">{f.categoria} · dia {f.dia_vencimento}</div></div><div className="item-right"><div className={`item-val ${TIPO_INFO[f.tipo]?.cls||'r'}`}>{TIPO_INFO[f.tipo]?.prefix||'-'}{fmt(f.valor)}</div></div></div>)}</div></div>}
+        {fixosA.filter(f=>!f.cartao_id).length>0&&<div className="sec"><div className="sec-title">Fixos do mês</div><div className="card">{fixosA.filter(f=>!f.cartao_id).map(f=><div className="item" key={f.id}><div className={`item-ico ${f.tipo==='receita'?'g':f.tipo==='investimento'?'inv':'y'}`}>{catEmoji(f.categoria,cats)}</div><div className="item-info"><div className="item-desc">{f.descricao}<span className="badge badge-fixo">fixo</span></div><div className="item-sub">{f.categoria} · dia {f.dia_vencimento}</div></div><div className="item-right"><div className={`item-val ${TIPO_INFO[f.tipo]?.cls||'r'}`}>{TIPO_INFO[f.tipo]?.prefix||'-'}{fmt(f.valor)}</div></div></div>)}</div></div>}
         <div className="sec"><div className="sec-title">Onde está indo o dinheiro</div><div className="card"><Bars items={allM} total={desp}/></div></div>
         <div className="sec" style={{marginTop:16}}><div className="sec-title">Últimos lançamentos</div><div className="card">{[...mItems].slice(0,5).map(item=><Row key={item.id} item={item}/>)}{mItems.length===0&&<div className="empty"><span className="ei">📭</span>Toque em + para adicionar</div>}</div></div>
       </div>
@@ -427,7 +422,7 @@ export default function Dashboard({user,onLogout}){
                   <div style={{fontSize:11,color:'var(--t3)',marginBottom:8,textTransform:'uppercase',letterSpacing:.5}}>Histórico</div>
                   <div style={{display:'flex',gap:12}}>{ult.map(({k,label,tot,pg})=><div key={k} style={{flex:1,textAlign:'center'}}><div style={{fontSize:12,color:'var(--t2)',marginBottom:4}}>{label}</div><div style={{fontSize:14,fontWeight:600,fontFamily:'DM Mono,monospace',color:pg?'var(--g)':tot>0?'var(--r)':'var(--t3)'}}>{tot>0?fmtS(tot):'—'}</div>{pg&&<div style={{fontSize:10,color:'var(--g)'}}>✅</div>}</div>)}</div>
                 </div>
-                <div>{lancs.filter(d=>d.cartao_id===c.id&&d.data?.startsWith(mk)).slice(0,5).map(item=><Row key={item.id} item={item} showDel/>)}{lancs.filter(d=>d.cartao_id===c.id&&d.data?.startsWith(mk)).length===0&&<div className="empty" style={{padding:'1rem'}}>Nenhum gasto neste mês</div>}</div>
+                <div>{gcMes(c.id,mk).slice(0,5).map(item=><Row key={item.id} item={item} showDel/>)}{gcMes(c.id,mk).length===0&&<div className="empty" style={{padding:'1rem'}}>Nenhum gasto neste mês</div>}</div>
               </div>
             </div>
           )
@@ -454,7 +449,10 @@ export default function Dashboard({user,onLogout}){
       {/* CONFIG */}
       <div className={`page${tab==='config'?' on':''}`}>
         <div style={{padding:'16px 20px 4px',display:'flex',alignItems:'center',justifyContent:'space-between'}}><div style={{fontSize:18,fontWeight:600}}>Configurações</div><button style={{padding:'8px 14px',fontSize:13,border:'1px solid var(--border)',borderRadius:'var(--rads)',background:'var(--card)',cursor:'pointer',color:'var(--t2)',fontFamily:'inherit'}} onClick={async()=>{await sb.auth.signOut();onLogout()}}>Sair</button></div>
-        <div style={{padding:'4px 20px 0',fontSize:13,color:'var(--t3)'}}>{user?.email}<<div className="sec" style={{marginTop:16}}>
+        <div style={{padding:'4px 20px 0',fontSize:13,color:'var(--t3)'}}>{user?.email}</div>
+
+        {/* FIXOS */}
+        <div className="sec" style={{marginTop:16}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
             <div className="sec-title" style={{margin:0}}>Custos fixos</div>
             <button style={{padding:'7px 14px',fontSize:13,fontWeight:600,border:'none',borderRadius:'var(--rads)',background:'var(--t1)',color:'#fff',cursor:'pointer',fontFamily:'inherit'}} onClick={openFixo}>+ Novo</button>
@@ -464,8 +462,11 @@ export default function Dashboard({user,onLogout}){
             {fixos.length===0&&<div className="empty"><span className="ei">🔄</span>Adicione aluguel, plano de saúde, aportes fixos...</div>}
             {fixos.map(f=>(
               <div className="fixo-item" key={f.id}>
-                <div className={'item-ico '+(f.tipo==='receita'?'g':f.tipo==='investimento'?'inv':'y')}>{catEmoji(f.categoria,cats)}</div>
-                <div className="item-info"><div className="item-desc">{f.descricao}{f.tipo==='investimento'&&<span className="badge badge-inv">invest.</span>}{f.cartao_id&&<span className="badge badge-cartao">💳 {cartoes.find(c=>c.id===f.cartao_id)?.nome||''}</span>}</div><div className="item-sub">{f.categoria} · dia {f.dia_vencimento} · {fmt(f.valor)}</div></div>
+                <div className={`item-ico ${f.tipo==='receita'?'g':f.tipo==='investimento'?'inv':'y'}`}>{catEmoji(f.categoria,cats)}</div>
+                <div className="item-info">
+                  <div className="item-desc">{f.descricao}{f.tipo==='investimento'&&<span className="badge badge-inv">invest.</span>}{f.cartao_id&&<span className="badge badge-cartao">💳 {cartoes.find(c=>c.id===f.cartao_id)?.nome||''}</span>}</div>
+                  <div className="item-sub">{f.categoria} · dia {f.dia_vencimento} · {fmt(f.valor)}</div>
+                </div>
                 <label className="fixo-toggle"><input type="checkbox" checked={!!f.ativo} onChange={()=>toggleFixo(f.id,f.ativo)}/><span className="fixo-slider"></span></label>
                 <button className="del-btn" onClick={()=>openEditFixo(f)} style={{fontSize:14}}>✏️</button>
                 <button className="del-btn" onClick={()=>delFixo(f.id)}>×</button>
@@ -473,17 +474,21 @@ export default function Dashboard({user,onLogout}){
             ))}
           </div>
         </div>
-        <div className="sec" style={{marginTop:16}}><div className="sec-title">Minhas categorias</div>
+
+        {/* CATEGORIAS */}
+        <div className="sec" style={{marginTop:20}}><div className="sec-title">Minhas categorias</div>
           <div className="cat-form"><input placeholder="Nome da categoria" value={ncNome} onChange={e=>setNcNome(e.target.value)} maxLength={30}/><select value={ncEmoji} onChange={e=>setNcEmoji(e.target.value)}>{EMOJIS.map(e=><option key={e} value={e}>{e}</option>)}</select><select value={ncTipo} onChange={e=>setNcTipo(e.target.value)}><option value="despesa">Saída</option><option value="receita">Entrada</option><option value="investimento">Investimento</option></select><button onClick={addCat}>+ Adicionar</button></div>
           <div className="card">{cats.map(c=><div className="item" key={c.id||c.nome}><div style={{fontSize:22,width:32,textAlign:'center'}}>{c.emoji}</div><div className="item-info"><div className="item-desc">{c.nome}</div><div className="item-sub">{c.tipo==='receita'?'Entrada':c.tipo==='investimento'?'Investimento':'Saída'}</div></div>{c.id&&<button className="del-btn" onClick={()=>delCat(c.id,c.nome)}>×</button>}</div>)}</div>
         </div>
+
+        {/* BACKUP */}
         <div className="sec" style={{marginTop:20}}><div className="sec-title">Backup</div><div className="bk-tip"><span>💡</span><span>Dados salvos na nuvem automaticamente.</span></div><div className="bk-grid"><button className="bk-btn pri" onClick={exportData}><span className="bi">📤</span>Exportar</button><button className="bk-btn" style={{background:'var(--r)',color:'#fff',borderColor:'var(--r)'}} onClick={async()=>{if(window.confirm('Apagar TODOS os dados?')){await sb.from('lancamentos').delete().eq('user_id',user.id);load();showT('🗑️ Apagado.')}}}><span className="bi">🗑️</span>Apagar tudo</button></div></div>
       </div>
 
       <button className="fab" onClick={openNew}>+</button>
       <div className={`toast${toastV?' show':''}`}>{toast}</div>
 
-      {/* MODAL LANÇAMENTO / EDITAR */}
+      {/* MODAL LANÇAMENTO */}
       {(modal==='lanc'||modal==='edit')&&(
         <div className="overlay open" onClick={e=>e.target.className==='overlay open'&&setModal(null)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>
@@ -514,7 +519,7 @@ export default function Dashboard({user,onLogout}){
               <div className="ff"><label htmlFor="fv">Valor R$</label><input id="fv" type="number" inputMode="decimal" placeholder="0,00" value={fValor} onChange={e=>setFValor(e.target.value)}/></div>
               <div className="ff"><label htmlFor="fc">Categoria</label><select id="fc" value={fCat} onChange={e=>setFCat(e.target.value)}>{cats.filter(c=>c.tipo===fTipo).map(c=><option key={c.id||c.nome} value={c.nome}>{c.emoji} {c.nome}</option>)}</select></div>
               <div className="ff"><label htmlFor="fd2">Dia do mês</label><select id="fd2" value={fDia} onChange={e=>setFDia(e.target.value)}>{Array.from({length:28},(_,i)=><option key={i+1} value={i+1}>Dia {i+1}</option>)}</select></div>
-              {fTipo==='despesa'&&cartoes.length>0&&<div className="ff"><label htmlFor="fcard">Cartão</label><select id="fcard" value={fCartao} onChange={e=>setFCartao(e.target.value)}><option value=''>Débito / Dinheiro</option>{cartoes.map(c=><option key={c.id} value={c.id}>💳 {c.nome}</option>)}</select></div>}
+              {fTipo==='despesa'&&cartoes.length>0&&<div className="ff"><label htmlFor="fcard">Cartão</label><select id="fcard" value={fCartao} onChange={e=>setFCartao(e.target.value)}><option value="">Débito / Dinheiro</option>{cartoes.map(c=><option key={c.id} value={c.id}>💳 {c.nome}</option>)}</select></div>}
             </div>
             <button className={`save-btn ${fTipo==='receita'?'rec':fTipo==='investimento'?'inv-btn':'des'}`} onClick={saveFixo} disabled={saving}>{saving?'Salvando...':editFixoId?'✅ Atualizar fixo':'✅ Salvar fixo'}</button>
           </div>
