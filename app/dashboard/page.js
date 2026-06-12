@@ -49,6 +49,8 @@ export default function Dashboard({user,onLogout}){
   const [fixos,setFixos]=useState([])
   const [cartoes,setCartoes]=useState([])
   const [faturas,setFaturas]=useState([])
+  const [diaInicioMes,setDiaInicioMes]=useState(1)
+  const [savingSettings,setSavingSettings]=useState(false)
   const [loading,setLoading]=useState(true)
   const now=new Date()
   const [curY,setCurY]=useState(now.getFullYear())
@@ -92,16 +94,18 @@ export default function Dashboard({user,onLogout}){
   const load=useCallback(async()=>{
     if(!user?.id)return
     setLoading(true)
-    const [l,c,f,cr,fat]=await Promise.all([
+    const [l,c,f,cr,fat,cfg]=await Promise.all([
       sb.from('lancamentos').select('*').eq('user_id',user.id).order('data',{ascending:false}),
       sb.from('categorias').select('*').eq('user_id',user.id).order('criado_em'),
       sb.from('fixos').select('*').eq('user_id',user.id).order('criado_em'),
       sb.from('cartoes').select('*').eq('user_id',user.id).order('criado_em'),
       sb.from('faturas').select('*').eq('user_id',user.id).order('criado_em',{ascending:false}),
+      sb.from('user_settings').select('*').eq('user_id',user.id).single(),
     ])
     setLancs(l.data||[])
     setCartoes(cr.data||[])
     setFaturas(fat.data||[])
+    if(cfg.data?.dia_inicio_mes) setDiaInicioMes(cfg.data.dia_inicio_mes)
     let cd=c.data||[]
     if(cd.length===0){
       const{data:ins}=await sb.from('categorias').insert(DEFAULT_CATS.map(d=>({...d,user_id:user.id}))).select()
@@ -116,9 +120,31 @@ export default function Dashboard({user,onLogout}){
 
   useEffect(()=>{if(user?.id)load()},[load,user])
 
+  // Mês financeiro: se diaInicioMes > 1, o mês vai de diaInicioMes até diaInicioMes-1 do mês seguinte
   const mk=`${curY}-${String(curM+1).padStart(2,'0')}`
-  const mItems=lancs.filter(d=>d.data?.startsWith(mk))
-  const fatsPagas=faturas.filter(f=>f.data_pagamento?.startsWith(mk))
+  function getFinancialMonthRange(y, m) {
+    if(diaInicioMes<=1) {
+      const start = `${y}-${String(m+1).padStart(2,'0')}-01`
+      const lastDay = new Date(y, m+1, 0).getDate()
+      const end = `${y}-${String(m+1).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
+      return {start, end}
+    }
+    // ex: dia=25, mês=junho(5) => start=25/mai, end=24/jun
+    let sy=y, sm=m-1
+    if(sm<0){sm=11;sy--}
+    const start=`${sy}-${String(sm+1).padStart(2,'0')}-${String(diaInicioMes).padStart(2,'0')}`
+    const endDay=diaInicioMes-1
+    const end=`${y}-${String(m+1).padStart(2,'0')}-${String(endDay).padStart(2,'0')}`
+    return {start, end}
+  }
+  function isInFinancialMonth(dateStr, y, m) {
+    if(!dateStr) return false
+    const {start, end} = getFinancialMonthRange(y, m)
+    return dateStr >= start && dateStr <= end
+  }
+  const fmRange = getFinancialMonthRange(curY, curM)
+  const mItems=lancs.filter(d=>isInFinancialMonth(d.data, curY, curM))
+  const fatsPagas=faturas.filter(f=>isInFinancialMonth(f.data_pagamento, curY, curM))
   const fixosA=fixos.filter(f=>f.ativo)
   const pendF=fixosA.filter(f=>!mItems.find(l=>l.fixo_id===f.id)).map(f=>({id:'fixo_'+f.id,descricao:f.descricao,valor:f.valor,tipo:f.tipo,categoria:f.categoria,data:`${mk}-${String(f.dia_vencimento).padStart(2,'0')}`,isFixo:true,fixoId:f.id}))
   const allM=[...mItems,...pendF]
@@ -238,6 +264,16 @@ export default function Dashboard({user,onLogout}){
   async function delFixo(id){if(!window.confirm('Remover?'))return;await sb.from('fixos').delete().eq('id',id);showT('🗑️ Removido.');load()}
   async function addCat(){if(!ncNome){showT('⚠️ Digite o nome!');return};await sb.from('categorias').insert([{user_id:user.id,nome:ncNome,emoji:ncEmoji,tipo:ncTipo}]);setNcNome('');showT('✅ Categoria!');load()}
   async function delCat(id,n){if(!window.confirm(`Remover "${n}"?`))return;await sb.from('categorias').delete().eq('id',id);showT('🗑️ Removida.');load()}
+  async function saveSettings(dia){
+    setSavingSettings(true)
+    const val=parseInt(dia)
+    if(isNaN(val)||val<1||val>28){showT('⚠️ Dia inválido (1-28)');setSavingSettings(false);return}
+    await sb.from('user_settings').upsert({user_id:user.id,dia_inicio_mes:val,atualizado_em:new Date().toISOString()},{onConflict:'user_id'})
+    setDiaInicioMes(val)
+    setSavingSettings(false)
+    showT('✅ Configuração salva! Recarregue para ver.')
+  }
+
   function exportData(){
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({exportedAt:new Date().toISOString(),lancs,fixos,cats,cartoes,faturas},null,2)],{type:'application/json'}))
     a.download=`financas_${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.json`;a.click();showT('📁 Exportado!')
@@ -436,6 +472,25 @@ export default function Dashboard({user,onLogout}){
       <div className={`page${tab==='config'?' on':''}`}>
         <div style={{padding:'16px 20px 4px',display:'flex',alignItems:'center',justifyContent:'space-between'}}><div style={{fontSize:18,fontWeight:600}}>Configurações</div><button style={{padding:'8px 14px',fontSize:13,border:'1px solid var(--border)',borderRadius:'var(--rads)',background:'var(--card)',cursor:'pointer',color:'var(--t2)',fontFamily:'inherit'}} onClick={async()=>{await sb.auth.signOut();onLogout()}}>Sair</button></div>
         <div style={{padding:'4px 20px 0',fontSize:13,color:'var(--t3)'}}>{user?.email}</div>
+        <div className="sec" style={{marginTop:16}}>
+          <div className="sec-title">Mês financeiro</div>
+          <div className="card" style={{padding:'14px 16px'}}>
+            <div style={{fontSize:14,color:'var(--t2)',marginBottom:12,lineHeight:1.6}}>
+              Defina o dia em que seu mês financeiro começa. Por exemplo, se você recebe dia <strong>25</strong>, seu mês vai de 25/mês anterior até 24/mês atual.
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <label style={{fontSize:14,fontWeight:500,color:'var(--t1)',flexShrink:0}}>Meu mês começa no dia</label>
+              <select
+                defaultValue={diaInicioMes}
+                onChange={e=>saveSettings(e.target.value)}
+                style={{padding:'8px 12px',fontSize:15,border:'1px solid var(--border)',borderRadius:'var(--rads)',background:'var(--bg)',color:'var(--t1)',fontFamily:'DM Sans,sans-serif',cursor:'pointer'}}
+              >
+                {Array.from({length:28},(_,i)=><option key={i+1} value={i+1}>{i+1===1?'1 (padrão)':i+1}</option>)}
+              </select>
+            </div>
+            {diaInicioMes>1&&<div style={{marginTop:10,fontSize:12,color:'var(--g),',background:'#f0fdf8',borderRadius:'var(--rads)',padding:'8px 12px',color:'var(--g)'}}>✅ Seu mês atual: {fmRange.start.slice(8)+'/'+fmRange.start.slice(5,7)} até {fmRange.end.slice(8)+'/'+fmRange.end.slice(5,7)}</div>}
+          </div>
+        </div>
         <div className="sec" style={{marginTop:16}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
             <div className="sec-title" style={{margin:0}}>Custos fixos</div>
